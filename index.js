@@ -1,118 +1,121 @@
 export default {
   async fetch(request) {
-
     const url = new URL(request.url);
 
     const slug = url.searchParams.get("slug");
-    const page = parseInt(url.searchParams.get("page")) || 1;
-
+    const page = parseInt(url.searchParams.get("page") || "1", 10);
     const perPage = 50;
     const startIndex = (page - 1) * perPage + 1;
 
-    const BASE =
+    const SOURCE_API =
       "https://www.jiorockers.online/feeds/posts/default?alt=json";
 
-    // -------------------------
-    // CLEAN SLUG FUNCTION
-    // -------------------------
-    const getSlug = (link) => {
+    const corsHeaders = {
+      "Content-Type": "application/json; charset=utf-8",
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+    };
+
+    if (request.method === "OPTIONS") {
+      return new Response(null, { headers: corsHeaders });
+    }
+
+    const normalizeSlug = (value = "") =>
+      String(value)
+        .trim()
+        .replace(/^\/+|\/+$/g, "")
+        .replace(/\.html$/i, "");
+
+    const extractSlugFromLink = (link = "") => {
       try {
         const path = new URL(link).pathname;
-        return path.replace(/^\/|\/$/g, "").replace(".html", "");
+        return normalizeSlug(path.split("/").pop() || "");
       } catch {
-        return null;
+        return "";
       }
     };
 
-    // -------------------------
-    // NORMALIZE POST
-    // -------------------------
     const normalizePost = (post) => {
       const link =
-        post.link?.find(l => l.rel === "alternate")?.href || "";
+        post.link?.find((l) => l.rel === "alternate")?.href || "";
+
+      const content = post.content?.$t || "";
+      const img =
+        post.media$thumbnail?.url ||
+        content.match(/<img[^>]+src="([^"]+)"/i)?.[1] ||
+        "";
 
       return {
         title: post.title?.$t || "",
-        content: post.content?.$t || "",
-        published: post.published?.$t || "",
-        labels: post.category?.map(c => c.term) || [],
-        image:
-          post.media$thumbnail?.url ||
-          post.content?.$t?.match(/<img.*?src="(.*?)"/i)?.[1] ||
-          "",
+        slug: extractSlugFromLink(link),
         url: link,
-        slug: getSlug(link)
+        image: img,
+        published: post.published?.$t || "",
+        updated: post.updated?.$t || "",
+        labels: post.category?.map((c) => c.term) || [],
+        content,
       };
     };
 
-    // =====================================================
-    // 🔥 SINGLE POST MODE (SLUG SEARCH)
-    // =====================================================
-    if (slug) {
+    try {
+      if (slug) {
+        const target = normalizeSlug(slug);
 
-      const target = slug.replace(/\/$/g, "");
+        let found = null;
+        let index = 1;
+        const maxPages = 20;
 
-      let foundPost = null;
-      let currentIndex = 1;
+        for (let i = 0; i < maxPages; i++) {
+          const api = `${SOURCE_API}&start-index=${index}&max-results=${perPage}`;
+          const res = await fetch(api);
+          if (!res.ok) break;
 
-      // LIMIT to avoid infinite loop
-      const MAX_PAGES = 10;
+          const data = await res.json();
+          const entries = data.feed?.entry || [];
+          if (!entries.length) break;
 
-      for (let i = 0; i < MAX_PAGES; i++) {
-
-        const api =
-          `${BASE}&start-index=${currentIndex}&max-results=${perPage}`;
-
-        const res = await fetch(api);
-        const data = await res.json();
-
-        const entries = data.feed?.entry || [];
-
-        if (!entries.length) break;
-
-        for (const post of entries) {
-
-          const normalized = normalizePost(post);
-
-          if (normalized.slug === target) {
-            foundPost = normalized;
-            break;
+          for (const post of entries) {
+            const item = normalizePost(post);
+            if (item.slug === target) {
+              found = item;
+              break;
+            }
           }
+
+          if (found) break;
+          index += perPage;
         }
 
-        if (foundPost) break;
-
-        currentIndex += perPage;
+        return new Response(JSON.stringify(found), { headers: corsHeaders });
       }
 
-      return new Response(JSON.stringify(foundPost || null), {
-        headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*"
-        }
+      const api = `${SOURCE_API}&start-index=${startIndex}&max-results=${perPage}`;
+      const res = await fetch(api);
+      if (!res.ok) {
+        return new Response(JSON.stringify({ page, posts: [] }), {
+          status: 200,
+          headers: corsHeaders,
+        });
+      }
+
+      const data = await res.json();
+      const posts = (data.feed?.entry || []).map(normalizePost);
+
+      return new Response(JSON.stringify({ page, posts }), {
+        headers: corsHeaders,
       });
+    } catch (err) {
+      return new Response(
+        JSON.stringify({
+          error: "Worker failed",
+          message: String(err?.message || err),
+        }),
+        {
+          status: 500,
+          headers: corsHeaders,
+        }
+      );
     }
-
-    // =====================================================
-    // 📄 LIST MODE (FAST PAGE LOAD)
-    // =====================================================
-    const api =
-      `${BASE}&start-index=${startIndex}&max-results=${perPage}`;
-
-    const res = await fetch(api);
-    const data = await res.json();
-
-    const posts =
-      (data.feed?.entry || []).map(normalizePost);
-
-    return new Response(JSON.stringify({
-      page,
-      posts
-    }), {
-      headers: {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*"
-      }
-    });
-  }
+  },
 };
