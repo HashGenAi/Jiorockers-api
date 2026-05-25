@@ -16,34 +16,14 @@ export default {
 
     const data = await response.json();
 
-    const posts = (data.feed.entry || []).map(post => {
-
-      const title = post.title.$t;
-
-      const link =
-        post.link.find(l => l.rel === "alternate")?.href || "";
-
-      const content = post.content?.$t || "";
-
-      const imageMatch =
-        content.match(/<img.*?src="(.*?)"/);
-
-      const image = imageMatch
-        ? imageMatch[1]
-        : "";
-
-      return {
-        title,
-        link,
-        image
-      };
-    });
-
     return new Response(
       JSON.stringify({
+        success: true,
         page,
-        posts
-      }),
+        totalResults: data.feed["openSearch$totalResults"]?.$t || 0,
+        itemsPerPage: data.feed["openSearch$itemsPerPage"]?.$t || perPage,
+        posts: data.feed.entry || []
+      }, null, 2),
       {
         headers: {
           "Content-Type": "application/json",
