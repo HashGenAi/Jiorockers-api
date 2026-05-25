@@ -10,7 +10,7 @@ export default {
     const startIndex = (page - 1) * perPage + 1;
 
     const bloggerUrl =
-      `https://YOURBLOG.blogspot.com/feeds/posts/default?alt=json&start-index=${startIndex}&max-results=${perPage}`;
+      `https://www.jiorockers.online/feeds/posts/default?alt=json&start-index=${startIndex}&max-results=${perPage}`;
 
     const response = await fetch(bloggerUrl);
 
