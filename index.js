@@ -9,38 +9,83 @@ export default {
     const perPage = 50;
     const startIndex = (page - 1) * perPage + 1;
 
-    // LIST
-    const api =
-      `https://www.jiorockers.online/feeds/posts/default?alt=json&start-index=${startIndex}&max-results=${perPage}`;
+    const BASE =
+      "https://www.jiorockers.online/feeds/posts/default?alt=json";
 
-    const res = await fetch(api);
-    const data = await res.json();
-
-    const posts = data.feed.entry || [];
-
-    // SIMPLE NORMALIZATION FUNCTION
-    const cleanPath = (link) => {
+    // -------------------------
+    // CLEAN SLUG FUNCTION
+    // -------------------------
+    const getSlug = (link) => {
       try {
-        return new URL(link).pathname.replace(/\/$/, "");
+        const path = new URL(link).pathname;
+        return path.replace(/^\/|\/$/g, "").replace(".html", "");
       } catch {
-        return "";
+        return null;
       }
     };
 
-    // SINGLE POST MODE
+    // -------------------------
+    // NORMALIZE POST
+    // -------------------------
+    const normalizePost = (post) => {
+      const link =
+        post.link?.find(l => l.rel === "alternate")?.href || "";
+
+      return {
+        title: post.title?.$t || "",
+        content: post.content?.$t || "",
+        published: post.published?.$t || "",
+        labels: post.category?.map(c => c.term) || [],
+        image:
+          post.media$thumbnail?.url ||
+          post.content?.$t?.match(/<img.*?src="(.*?)"/i)?.[1] ||
+          "",
+        url: link,
+        slug: getSlug(link)
+      };
+    };
+
+    // =====================================================
+    // 🔥 SINGLE POST MODE (SLUG SEARCH)
+    // =====================================================
     if (slug) {
 
-      const target = slug.replace(/\/$/, "");
+      const target = slug.replace(/\/$/g, "");
 
-      const found = posts.find(post => {
+      let foundPost = null;
+      let currentIndex = 1;
 
-        const link =
-          post.link?.find(l => l.rel === "alternate")?.href || "";
+      // LIMIT to avoid infinite loop
+      const MAX_PAGES = 10;
 
-        return cleanPath(link) === target;
-      });
+      for (let i = 0; i < MAX_PAGES; i++) {
 
-      return new Response(JSON.stringify(found || null), {
+        const api =
+          `${BASE}&start-index=${currentIndex}&max-results=${perPage}`;
+
+        const res = await fetch(api);
+        const data = await res.json();
+
+        const entries = data.feed?.entry || [];
+
+        if (!entries.length) break;
+
+        for (const post of entries) {
+
+          const normalized = normalizePost(post);
+
+          if (normalized.slug === target) {
+            foundPost = normalized;
+            break;
+          }
+        }
+
+        if (foundPost) break;
+
+        currentIndex += perPage;
+      }
+
+      return new Response(JSON.stringify(foundPost || null), {
         headers: {
           "Content-Type": "application/json",
           "Access-Control-Allow-Origin": "*"
@@ -48,7 +93,18 @@ export default {
       });
     }
 
-    // LIST MODE
+    // =====================================================
+    // 📄 LIST MODE (FAST PAGE LOAD)
+    // =====================================================
+    const api =
+      `${BASE}&start-index=${startIndex}&max-results=${perPage}`;
+
+    const res = await fetch(api);
+    const data = await res.json();
+
+    const posts =
+      (data.feed?.entry || []).map(normalizePost);
+
     return new Response(JSON.stringify({
       page,
       posts
@@ -59,4 +115,4 @@ export default {
       }
     });
   }
-}
+};
