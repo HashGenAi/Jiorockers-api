@@ -9,7 +9,7 @@ export default {
     const perPage = 50;
     const startIndex = (page - 1) * perPage + 1;
 
-    // FETCH POSTS
+    // LIST
     const api =
       `https://www.jiorockers.online/feeds/posts/default?alt=json&start-index=${startIndex}&max-results=${perPage}`;
 
@@ -18,17 +18,26 @@ export default {
 
     const posts = data.feed.entry || [];
 
+    // SIMPLE NORMALIZATION FUNCTION
+    const cleanPath = (link) => {
+      try {
+        return new URL(link).pathname.replace(/\/$/, "");
+      } catch {
+        return "";
+      }
+    };
+
     // SINGLE POST MODE
     if (slug) {
+
+      const target = slug.replace(/\/$/, "");
 
       const found = posts.find(post => {
 
         const link =
           post.link?.find(l => l.rel === "alternate")?.href || "";
 
-        const path = new URL(link).pathname;
-
-        return path === slug;
+        return cleanPath(link) === target;
       });
 
       return new Response(JSON.stringify(found || null), {
