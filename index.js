@@ -1,3 +1,6 @@
+if (url.pathname.startsWith("/post/")) {
+  return fetch(new Request(request.url.replace(url.pathname, "/"), request));
+}
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
